@@ -1,0 +1,54 @@
+CREATE CONSTRAINT Airport_id IF NOT EXISTS
+FOR (n:Airport) REQUIRE n.id IS UNIQUE;
+------------------------------------------
+LOAD CSV FROM ‘https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat' AS row
+
+WITH row, {name: row[1], city: row[2], country: row[3], IATA: row[4], ICAO: row[5], timezone: row[9], DST: row[10], `tz database timezone`: row[11], type: row[12], source: row[13]} AS properties, {longitude: toFloat(row[7]), latitude: toFloat(row[6]), height: toFloat(row[8])} AS geoposition
+
+MERGE (a:Airport {id: row[0]})
+ON CREATE SET a += properties,
+a.geoposition = point(geoposition);
+
+------------------------------------------
+CREATE CONSTRAINT Airline_id IF NOT EXISTS
+FOR (n:Airline) REQUIRE n.id IS UNIQUE;
+LOAD CSV FROM ‘https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat' AS row
+
+WITH row, {name: row[1], alias: row[2], IATA: row[3], ICAO: row[4], callsign: row[5], country: row[6], active: row[7]} AS properties
+
+MERGE (a:Airline {id: row[0]})
+ON CREATE SET a += properties;
+------------------------------------------
+CREATE CONSTRAINT Route_id IF NOT EXISTS
+FOR (n:Route) REQUIRE n.id IS UNIQUE;
+LOAD CSV FROM ‘https://raw.githubusercontent.com/jpatokal/openflights/master/data/routes.dat' AS row
+
+WITH row
+WHERE row[1] <> “\N”
+
+WITH row, {codeshare: row[6], stops: toInteger(row[7]), equipment: row[8]} AS properties
+
+MATCH (a:Airline {id: row[1]})
+MATCH (source:Airport {id: row[3]})
+MATCH (target:Airport {id: row[5]})
+
+WITH row, properties, a, source, target
+MERGE (r:Route {id: apoc.text.join([source.id, target.id, a.id], “_”)})
+ON CREATE SET r += properties
+
+WITH a, source, target, r
+MERGE (r)-[:AIRLINE]->(a)
+MERGE (r)-[:FROM]->(source)
+MERGE (r)-[:TO]->(target);
+---------------------------------------
+MATCH path = (source:Airport {city: “Bari”})
+( (:Airport)<-[:FROM]-()-[:TO]->() ) {1, 2}
+(target {city: “Paris”})
+
+RETURN path
+---------------------------------------
+MATCH path = ALL SHORTEST (source:Airport {city: “Bari”})
+( (:Airport)<-[:FROM]-()-[:TO]->() ) {1, 2}
+(target {city: “Paris”})
+
+RETURN path
